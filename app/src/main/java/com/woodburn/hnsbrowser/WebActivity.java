@@ -14,6 +14,7 @@ import android.webkit.WebViewClient;
 import android.widget.Toast;
 import java.net.InetAddress;
 import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.security.cert.Certificate;
 import java.util.List;
 import java.util.concurrent.Executor;
@@ -46,6 +47,12 @@ public class WebActivity extends AppCompatActivity {
 
         // Set proxy to https://proxy.hnsproxy.au
         WebSettings webSettings = webView.getSettings();
+        webSettings.setJavaScriptEnabled(true);
+        webSettings.setDomStorageEnabled(true);
+        webSettings.setDatabaseEnabled(true);
+        webSettings.setMinimumFontSize(1);
+        webSettings.setMinimumLogicalFontSize(1);
+
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onReceivedHttpAuthRequest(WebView view, HttpAuthHandler handler, String host, String realm){
@@ -54,8 +61,34 @@ public class WebActivity extends AppCompatActivity {
             }
             @Override
             public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
-                handler.proceed(); // Ignore SSL certificate errors
-                new Thread(new Runnable() {
+                try {
+                    Certificate certificate = error.getCertificate().getX509Certificate();
+                    byte[] publicKeyBytes = certificate.getPublicKey().getEncoded();
+                    MessageDigest sha256Digest = null;
+                    sha256Digest = MessageDigest.getInstance("SHA-256");
+                    byte[] sha256Hash = sha256Digest.digest(publicKeyBytes);
+                    // Print the hash in hexadecimal format
+                    StringBuilder hexString = new StringBuilder();
+                    for (byte b : sha256Hash) {
+                        hexString.append(String.format("%02X", b));
+                    }
+                    // Get TLSA hash via DIG
+                    String siteHash = hexString.toString();
+                    // Hard coded HNSHosting TLSA
+                    String HNSHostingHash = "7A98E0BC147DA17025C8BF9647A7BF06D7C8F330E99E7BB8828FA9F8E7344B81";
+                    if (siteHash.equals(HNSHostingHash)) {
+                        handler.proceed(); // Ignore SSL certificate errors
+                    } else {
+                        Toast.makeText(WebActivity.this, "SSL ERROR: TLSA Mismatch", Toast.LENGTH_SHORT).show();
+                    }
+                } catch (NoSuchAlgorithmException e) {
+                    Toast.makeText(WebActivity.this, "SSL ERROR: TLSA check error", Toast.LENGTH_SHORT).show();
+                }
+
+
+
+                /*new Thread(new Runnable() {
+
                     @Override
                     public void run() {
                         boolean validSSL = false;
@@ -71,6 +104,8 @@ public class WebActivity extends AppCompatActivity {
                             }
                             // Get TLSA hash via DIG
                             String siteHash = hexString.toString();
+
+                            // TLSA lookup for HSD
                             String domain = url.replace("https://", "");
                             if (domain.contains("/")) {
                                 domain = domain.substring(0, domain.indexOf("/"));
@@ -124,7 +159,7 @@ public class WebActivity extends AppCompatActivity {
                             });
                         }
                     }
-                }).start();
+                }).start();*/
             }
         });
         setProxy();
